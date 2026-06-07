@@ -20,39 +20,75 @@ python mcp_server.py --cli
 USE_CLI=1 python mcp_server.py
 ```
 
+## When to Use Gimme
+
+| Your Agent | Use Gimme? | How |
+|------------|------------|-----|
+| **Desktop GUI agent** (Zed, Cline, etc.) | ✅ Yes | MCP server with GUI forms |
+| **Headless VPS agent** (SSH terminal) | ⚠️ Direct import only | `from mcp_server import cli_input` |
+| **Headless VPS agent** (MCP mode) | ❌ No | MCP stdio conflicts with interactive TUI |
+| **Custom CLI tool** | ✅ Yes | Direct import or subprocess |
+
+### Why MCP Mode Doesn't Work on Headless VPS
+
+When Hermes (or any agent) runs on a headless VPS and you SSH in:
+
+1. **MCP stdio occupies stdin/stdout** — The protocol pipe is used for JSON-RPC framing, not connected to your terminal
+2. **CLI prompts go to stderr** — But reads from `sys.stdin` which is the MCP pipe, not your SSH session
+3. **Result**: Tool hangs waiting for input that never arrives
+
+**Solution**: Agent frameworks should extend their own TUI with native form rendering (see: Hermes `clarify` tool with `fields[]`).
+
 ## One-Liner MCP Setup
 
-### Zed
-```bash
-# Add to Zed settings.json under "mcpServers":
-"gimme": {"command": "python3", "args": ["/path/to/Gimme/mcp_server.py", "--cli"]}
+### Zed (Desktop)
+```json
+"gimme": {"command": "python3", "args": ["/path/to/Gimme/mcp_server.py"]}
 ```
 
-### Cline / Roo Code
+### Cline / Roo Code (Desktop)
 ```bash
-# In MCP settings UI, add server:
 Command: python3
-Args: /path/to/Gimme/mcp_server.py --cli
+Args: /path/to/Gimme/mcp_server.py
 ```
 
-### Hermes MCP
-```bash
-hermes mcp add gimme --command python3 --args "/path/to/Gimme/mcp_server.py --cli"
-```
-
-### Manual (Any Host)
+### Manual (Any MCP Host)
 ```json
 {
   "mcpServers": {
     "gimme": {
       "command": "python3",
-      "args": ["/path/to/Gimme/mcp_server.py", "--cli"]
+      "args": ["/path/to/Gimme/mcp_server.py"]
     }
   }
 }
 ```
 
 ⚠️ **Common pitfall**: `args` must be a list `["arg1", "arg2"]`, not a string `"arg1 arg2"`.
+
+## Direct Python Import (Headless VPS / TUI Fallback)
+
+For agents that need to render forms in their own terminal session:
+
+```python
+from mcp_server import cli_input
+
+schema = {
+    "title": "Workout Log",
+    "fields": [
+        {"name": "exercise", "type": "select", "label": "Exercise",
+         "options": ["Leg Press", "Calf Extension", "Chest Press"]},
+        {"name": "sets", "type": "number", "label": "Sets", "default": 3},
+        {"name": "reps", "type": "number", "label": "Reps", "default": 10},
+        {"name": "weight", "type": "number", "label": "Weight (lbs)"}
+    ]
+}
+
+result = cli_input(schema)
+# {'exercise': 'Leg Press', 'sets': 3, 'reps': 10, 'weight': 225}
+```
+
+See `examples/hermes_callback.py` for full callback integration pattern.
 
 ## Field Types
 
@@ -108,7 +144,6 @@ All 14 field types work in both GUI and CLI modes:
   ]
 }
 ```
-User can paste from Excel (newlines) or type comma-separated.
 
 ### File Picker
 ```json
@@ -117,17 +152,6 @@ User can paste from Excel (newlines) or type comma-separated.
   "fields": [
     {"name": "project_dir", "type": "file", "label": "Project folder",
      "directory": true, "default": "C:/Projects"}
-  ]
-}
-```
-
-### Date/Time Scheduling
-```json
-{
-  "title": "Schedule Task",
-  "fields": [
-    {"name": "run_at", "type": "datetime", "label": "When to run?",
-     "default": "2025-01-15 09:00"}
   ]
 }
 ```
@@ -154,8 +178,6 @@ Enable notifications? [y/N]: y
 Tech stack (comma/newline separated) [Python, Docker]: Python, PostgreSQL, Docker
 Confidence threshold (0-100) [70]: 85
 ```
-
-Same schema works in both modes automatically.
 
 ## Testing
 
@@ -186,10 +208,12 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"vibe_ui","
 
 ```
 gimme/
-├── mcp_server.py    (~250 lines)
+├── mcp_server.py          (~250 lines)
 ├── README.md
 ├── LICENSE
-└── .gitignore
+├── .gitignore
+└── examples/
+    └── hermes_callback.py (Callback integration example)
 ```
 
 **Zero dependencies** - tkinter is Python stdlib (only imported in GUI mode).
@@ -201,54 +225,16 @@ gimme/
 3. **Fallback**: Also accepts bare JSON for testing (hermes mcp test compatibility)
 4. **Clean streams**: CLI prompts go to stderr, JSON-RPC stays on stdout
 
+## For Agent Framework Developers
+
+If you're building an agent that runs on headless servers (SSH, VPS, etc.):
+
+1. **Don't use Gimme as MCP** — The stdio protocol conflicts with interactive terminal input
+2. **Do extend your TUI** — Add native form rendering to your existing clarify/input tool
+3. **Optional: Use cli_input()** — Import directly for the input logic, render in your own TUI
+
+See `examples/hermes_callback.py` for the callback pattern.
+
 ## License
 
 MIT
-
-## Direct Python Import (No MCP)
-
-For agent frameworks that want to use Gimme's input logic directly:
-
-```python
-from mcp_server import cli_input
-
-# Define your form schema
-schema = {
-    "title": "Workout Log",
-    "fields": [
-        {"name": "exercise", "type": "select", "label": "Exercise",
-         "options": ["Leg Press", "Calf Extension", "Chest Press"]},
-        {"name": "sets", "type": "number", "label": "Sets", "default": 3},
-        {"name": "reps", "type": "number", "label": "Reps", "default": 10},
-        {"name": "weight", "type": "number", "label": "Weight (lbs)"}
-    ]
-}
-
-# Collect input via terminal
-result = cli_input(schema)
-print(result)
-# {'exercise': 'Leg Press', 'sets': 3, 'reps': 10, 'weight': 225}
-```
-
-This bypasses MCP entirely — useful for:
-- Hermes Agent TUI fallback
-- Custom CLI tools
-- Testing schemas without MCP host
-
-### Callback Integration
-
-```python
-def clarify_callback(question, choices=None, fields=None):
-    if fields:
-        schema = {"title": question, "fields": fields}
-        return cli_input(schema)
-    elif choices:
-        # Simple choice mode
-        for i, c in enumerate(choices, 1):
-            print(f"{i}: {c}")
-        val = input(f"{question} (1-{len(choices)}): ")
-        return choices[int(val)-1] if val.isdigit() else val
-    else:
-        return input(f"{question}: ")
-```
-
