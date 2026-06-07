@@ -2,6 +2,16 @@
 
 **Zero-dependency MCP input collector for AI-Human communication.**
 
+---
+
+> **🤖 Using with Hermes Agent on a headless VPS?**
+> 
+> **STOP** — Don't set up Gimme as an MCP server. It will hang.
+> 
+> Read [`HERMES_INTEGRATION.md`](HERMES_INTEGRATION.md) for the correct approach: extend Hermes's native `clarify` tool with `fields[]` support.
+
+---
+
 ## Quick Start
 
 ```bash
@@ -208,12 +218,13 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"vibe_ui","
 
 ```
 gimme/
-├── mcp_server.py          (~250 lines)
-├── README.md
+├── mcp_server.py              (~250 lines)
+├── README.md                  (this file)
+├── HERMES_INTEGRATION.md      (Hermes-specific guide - READ THIS)
 ├── LICENSE
 ├── .gitignore
 └── examples/
-    └── hermes_callback.py (Callback integration example)
+    └── hermes_callback.py     (Callback integration example)
 ```
 
 **Zero dependencies** - tkinter is Python stdlib (only imported in GUI mode).
