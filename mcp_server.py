@@ -4,18 +4,21 @@ import json
 import os
 import sys
 import threading
-import tkinter as tk
-from tkinter import ttk
 
 # CLI mode: use --cli flag or set USE_CLI=1 env var
 CLI_MODE = "--cli" in sys.argv or os.environ.get("USE_CLI") == "1"
 
+# Only import tkinter when needed (not in CLI mode)
+if not CLI_MODE:
+    import tkinter as tk
+    from tkinter import ttk
+
 
 def cli_input(schema):
     """Collect input via terminal instead of GUI."""
-    print("\n=== " + schema.get("title", "Input Required") + " ===")
+    sys.stderr.write("\n=== " + schema.get("title", "Input Required") + " ===\n")
     if schema.get("description"):
-        print(schema["description"] + "\n")
+        sys.stderr.write(schema["description"] + "\n\n")
     result = {}
     for field in schema.get("fields", []):
         name, label, ftype = (
@@ -27,13 +30,15 @@ def cli_input(schema):
         default = field.get("default", "")
         if ftype == "select":
             opts = field.get("options", [])
-            print(
-                f"{label}{req}: {' | '.join(f'{i}:{v}' for i, v in enumerate(opts, 1))}"
+            sys.stderr.write(
+                f"{label}{req}: {' | '.join(f'{i}:{v}' for i, v in enumerate(opts, 1))}\n"
             )
             while True:
-                val = input(
+                sys.stderr.write(
                     f"  Enter 1-{len(opts)} or value [{default or opts[0]}]: "
-                ).strip()
+                )
+                sys.stderr.flush()
+                val = sys.stdin.readline().strip()
                 if val.isdigit() and 1 <= int(val) <= len(opts):
                     result[name] = opts[int(val) - 1]
                     break
@@ -43,15 +48,18 @@ def cli_input(schema):
                 elif not val:
                     result[name] = default or opts[0]
                     break
-                print("  Invalid option")
+                sys.stderr.write("  Invalid option\n")
         elif ftype == "checkbox":
-            val = input(f"{label}{req}? [y/N]").strip().lower()
+            sys.stderr.write(f"{label}{req}? [y/N]")
+            sys.stderr.flush()
+            val = sys.stdin.readline().strip().lower()
             result[name] = val in ("y", "yes", "true", "1")
         elif ftype == "textarea":
-            print(f"{label}{req} (end with empty line):")
+            sys.stderr.write(f"{label}{req} (end with empty line):\n")
+            sys.stderr.flush()
             lines = []
             while True:
-                line = input()
+                line = sys.stdin.readline().rstrip("\n")
                 if not line:
                     break
                 lines.append(line)
@@ -59,12 +67,12 @@ def cli_input(schema):
         elif ftype in ("multiselect", "tags"):
             opts = field.get("options", [])
             if opts:
-                print(
-                    f"{label}{req}: {' | '.join(f'{i}:{v}' for i, v in enumerate(opts, 1))}"
+                sys.stderr.write(
+                    f"{label}{req}: {' | '.join(f'{i}:{v}' for i, v in enumerate(opts, 1))}\n"
                 )
-                val = input(
-                    f"  Enter comma-sep numbers or values [{default}]: "
-                ).strip()
+                sys.stderr.write(f"  Enter comma-sep numbers or values [{default}]: ")
+                sys.stderr.flush()
+                val = sys.stdin.readline().strip()
                 if val:
                     result[name] = [
                         opts[int(x) - 1]
@@ -75,9 +83,11 @@ def cli_input(schema):
                 else:
                     result[name] = default if isinstance(default, list) else []
             else:
-                val = input(
+                sys.stderr.write(
                     f"{label}{req} (comma/newline separated) [{default}]: "
-                ).strip()
+                )
+                sys.stderr.flush()
+                val = sys.stdin.readline().strip()
                 result[name] = (
                     [x.strip() for x in val.replace(",", "\n").split("\n") if x.strip()]
                     if val
@@ -89,11 +99,15 @@ def cli_input(schema):
                 field.get("max", 100),
                 field.get("default", 50),
             )
-            val = input(f"{label}{req} ({mn}-{mx}) [{df}]: ").strip()
+            sys.stderr.write(f"{label}{req} ({mn}-{mx}) [{df}]: ")
+            sys.stderr.flush()
+            val = sys.stdin.readline().strip()
             result[name] = int(val) if val.isdigit() else df
         elif ftype == "rating":
             mx = field.get("max", 5)
-            val = input(f"{label}{req} (1-{mx}) [{field.get('default', 3)}]: ").strip()
+            sys.stderr.write(f"{label}{req} (1-{mx}) [{field.get('default', 3)}]: ")
+            sys.stderr.flush()
+            val = sys.stdin.readline().strip()
             result[name] = (
                 int(val)
                 if val.isdigit() and 1 <= int(val) <= mx
@@ -101,25 +115,34 @@ def cli_input(schema):
             )
         elif ftype == "file":
             is_dir = field.get("directory", False)
-            val = input(
+            sys.stderr.write(
                 f"{label}{req} ({'directory' if is_dir else 'file'}) [{default}]: "
-            ).strip()
+            )
+            sys.stderr.flush()
+            val = sys.stdin.readline().strip()
             result[name] = val or default
         elif ftype == "datetime":
-            val = input(f"{label}{req} (YYYY-MM-DD HH:MM) [{default}]: ").strip()
+            sys.stderr.write(f"{label}{req} (YYYY-MM-DD HH:MM) [{default}]: ")
+            sys.stderr.flush()
+            val = sys.stdin.readline().strip()
             result[name] = val or default
         elif ftype == "range":
-            val = input(f"{label}{req} (start-end, e.g. 9-17) [{default}]: ").strip()
+            sys.stderr.write(f"{label}{req} (start-end, e.g. 9-17) [{default}]: ")
+            sys.stderr.flush()
+            val = sys.stdin.readline().strip()
             result[name] = val or default
         else:  # text, email, password, number
             show = "*" if ftype == "password" else ""
-            val = input(f"{label}{req}{show} [{default}]: ").strip()
+            sys.stderr.write(f"{label}{req}{show} [{default}]: ")
+            sys.stderr.flush()
+            val = sys.stdin.readline().strip()
             result[name] = (
                 val or default
                 if ftype != "number"
                 else (int(val) if val.isdigit() else default)
             )
-    print()
+    sys.stderr.write("\n")
+    sys.stderr.flush()
     return result
 
 
@@ -330,6 +353,7 @@ def run_server():
         line = line.strip()
         if line.startswith("Content-Length:"):
             cl = int(line.split(":")[1].strip())
+            sys.stdin.readline()  # Skip blank line separator (\r\n\r\n)
             body = sys.stdin.read(cl)
             req = json.loads(body)
             asyncio.run(handle(req))
