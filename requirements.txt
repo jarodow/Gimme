@@ -1,0 +1,2 @@
+# VibeScreen - Zero dependencies
+# tkinter is built into Python stdlib
