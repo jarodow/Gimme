@@ -1,18 +1,18 @@
 # Gimme
 
-**Zero-dependency MCP GUI for AI-Human communication.**
+**Zero-dependency MCP input collector for AI-Human communication.**
 
 ## Quick Start
 
 ```bash
+git clone https://github.com/jarodow/Gimme.git
+cd Gimme
 python mcp_server.py
 ```
 
-Window opens. AI agent controls what appears.
+GUI window opens. On headless servers (no `$DISPLAY`), CLI mode starts automatically.
 
-### CLI Mode
-
-For headless/remote use:
+### Force CLI Mode
 
 ```bash
 python mcp_server.py --cli
@@ -20,9 +20,43 @@ python mcp_server.py --cli
 USE_CLI=1 python mcp_server.py
 ```
 
-Terminal prompts appear instead of GUI window.
+## One-Liner MCP Setup
+
+### Zed
+```bash
+# Add to Zed settings.json under "mcpServers":
+"gimme": {"command": "python3", "args": ["/path/to/Gimme/mcp_server.py", "--cli"]}
+```
+
+### Cline / Roo Code
+```bash
+# In MCP settings UI, add server:
+Command: python3
+Args: /path/to/Gimme/mcp_server.py --cli
+```
+
+### Hermes MCP
+```bash
+hermes mcp add gimme --command python3 --args "/path/to/Gimme/mcp_server.py --cli"
+```
+
+### Manual (Any Host)
+```json
+{
+  "mcpServers": {
+    "gimme": {
+      "command": "python3",
+      "args": ["/path/to/Gimme/mcp_server.py", "--cli"]
+    }
+  }
+}
+```
+
+⚠️ **Common pitfall**: `args` must be a list `["arg1", "arg2"]`, not a string `"arg1 arg2"`.
 
 ## Field Types
+
+All 14 field types work in both GUI and CLI modes:
 
 | Type | Description | Example Use |
 |------|-------------|-------------|
@@ -48,7 +82,7 @@ Terminal prompts appear instead of GUI window.
   "fields": [
     {"name": "features", "type": "multiselect", "label": "Which to enable?",
      "options": ["auto-save", "linting", "formatting", "tests"],
-     "default_multi": ["auto-save"]}
+     "default": ["auto-save"]}
   ]
 }
 ```
@@ -109,25 +143,6 @@ User can paste from Excel (newlines) or type comma-separated.
 }
 ```
 
-## MCP Host Config
-
-```json
-{
-  "mcpServers": {
-    "gimme": {
-      "command": "python",
-      "args": ["/path/to/gimme/mcp_server.py"]
-    },
-    "gimme-cli": {
-      "command": "python",
-      "args": ["/path/to/gimme/mcp_server.py", "--cli"]
-    }
-  }
-}
-```
-
-Use `gimme` for GUI, `gimme-cli` for terminal prompts.
-
 ## CLI Example Session
 
 ```
@@ -140,32 +155,51 @@ Tech stack (comma/newline separated) [Python, Docker]: Python, PostgreSQL, Docke
 Confidence threshold (0-100) [70]: 85
 ```
 
-Same schema, works in both modes automatically.
+Same schema works in both modes automatically.
+
+## Testing
+
+### Quick Test with Bare JSON
+```bash
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | python mcp_server.py --cli
+```
+
+### Test Tool Call
+```bash
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"vibe_ui","arguments":{"schema":{"title":"Test","fields":[{"name":"q","type":"text"}]}}}}' | python mcp_server.py --cli
+```
 
 ## What This Solves
 
 | AI Needs | Before (CLI) | After (Gimme) |
 |----------|--------------|---------------|
-| Yes/No decision | Type "yes" | Checkbox |
-| Pick from options | Type option name | Dropdown |
-| Multiple selections | Comma list | Checkboxes |
-| Confidence level | Type "70%" | Slider |
-| File path | Type full path | Browse button |
-| Schedule | Parse date format | Date/time pickers |
-| Priority | Type 1-5 | Rating buttons |
-| Tech stack | Parse commas | Tags input |
+| Yes/No decision | Type "yes" | Checkbox / `[y/N]` |
+| Pick from options | Type option name | Dropdown / `1-3` list |
+| Multiple selections | Comma list | Checkboxes / comma-sep |
+| Confidence level | Type "70%" | Slider / `(0-100)` |
+| File path | Type full path | Browse / path prompt |
+| Schedule | Parse date format | Date picker / `YYYY-MM-DD` |
+| Priority | Type 1-5 | Rating / `(1-5)` |
+| Tech stack | Parse commas | Tags / comma-newline |
 
 ## Files
 
 ```
 gimme/
-├── mcp_server.py    (~200 lines)
+├── mcp_server.py    (~250 lines)
 ├── README.md
 ├── LICENSE
 └── .gitignore
 ```
 
-**Zero dependencies** - tkinter is Python stdlib.
+**Zero dependencies** - tkinter is Python stdlib (only imported in GUI mode).
+
+## How It Works
+
+1. **Auto-detect**: Checks `--cli` flag, `USE_CLI` env var, or `$DISPLAY` presence
+2. **MCP protocol**: JSON-RPC 2.0 over stdio with Content-Length framing
+3. **Fallback**: Also accepts bare JSON for testing (hermes mcp test compatibility)
+4. **Clean streams**: CLI prompts go to stderr, JSON-RPC stays on stdout
 
 ## License
 

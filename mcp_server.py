@@ -6,7 +6,12 @@ import sys
 import threading
 
 # CLI mode: use --cli flag or set USE_CLI=1 env var
-CLI_MODE = "--cli" in sys.argv or os.environ.get("USE_CLI") == "1"
+# Auto-detect headless environment (no DISPLAY) and default to CLI mode
+CLI_MODE = (
+    "--cli" in sys.argv
+    or os.environ.get("USE_CLI") == "1"
+    or (not os.environ.get("DISPLAY") and sys.platform != "darwin")
+)
 
 # Only import tkinter when needed (not in CLI mode)
 if not CLI_MODE:
@@ -251,7 +256,7 @@ def gui_main():
 
 TOOL = {
     "name": "vibe_ui",
-    "description": "Show GUI for structured input",
+    "description": "Show GUI or CLI prompts for structured user input",
     "inputSchema": {
         "type": "object",
         "properties": {
@@ -273,12 +278,31 @@ TOOL = {
                                 "number",
                                 "textarea",
                                 "select",
+                                "multiselect",
                                 "checkbox",
+                                "slider",
+                                "rating",
+                                "tags",
+                                "file",
+                                "datetime",
+                                "range",
                             ],
                         },
                         "required": {"type": "boolean"},
-                        "default": {"type": "string"},
+                        "default": {"description": "Default value (any type)"},
                         "options": {"type": "array", "items": {"type": "string"}},
+                        "min": {
+                            "type": "integer",
+                            "description": "Min value for slider",
+                        },
+                        "max": {
+                            "type": "integer",
+                            "description": "Max value for slider/rating",
+                        },
+                        "directory": {
+                            "type": "boolean",
+                            "description": "Pick directory instead of file",
+                        },
                     },
                     "required": ["name"],
                 },
@@ -356,6 +380,9 @@ def run_server():
             sys.stdin.readline()  # Skip blank line separator (\r\n\r\n)
             body = sys.stdin.read(cl)
             req = json.loads(body)
+            asyncio.run(handle(req))
+        elif line.startswith("{"):
+            req = json.loads(line)
             asyncio.run(handle(req))
 
 
