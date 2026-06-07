@@ -204,3 +204,51 @@ gimme/
 ## License
 
 MIT
+
+## Direct Python Import (No MCP)
+
+For agent frameworks that want to use Gimme's input logic directly:
+
+```python
+from mcp_server import cli_input
+
+# Define your form schema
+schema = {
+    "title": "Workout Log",
+    "fields": [
+        {"name": "exercise", "type": "select", "label": "Exercise",
+         "options": ["Leg Press", "Calf Extension", "Chest Press"]},
+        {"name": "sets", "type": "number", "label": "Sets", "default": 3},
+        {"name": "reps", "type": "number", "label": "Reps", "default": 10},
+        {"name": "weight", "type": "number", "label": "Weight (lbs)"}
+    ]
+}
+
+# Collect input via terminal
+result = cli_input(schema)
+print(result)
+# {'exercise': 'Leg Press', 'sets': 3, 'reps': 10, 'weight': 225}
+```
+
+This bypasses MCP entirely — useful for:
+- Hermes Agent TUI fallback
+- Custom CLI tools
+- Testing schemas without MCP host
+
+### Callback Integration
+
+```python
+def clarify_callback(question, choices=None, fields=None):
+    if fields:
+        schema = {"title": question, "fields": fields}
+        return cli_input(schema)
+    elif choices:
+        # Simple choice mode
+        for i, c in enumerate(choices, 1):
+            print(f"{i}: {c}")
+        val = input(f"{question} (1-{len(choices)}): ")
+        return choices[int(val)-1] if val.isdigit() else val
+    else:
+        return input(f"{question}: ")
+```
+
