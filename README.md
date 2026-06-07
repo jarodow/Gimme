@@ -4,11 +4,13 @@
 
 ---
 
-> **🤖 Using with Hermes Agent on a headless VPS?**
+> **🤖 Using with an agent that only has TUI access?** (SSH into headless VPS, terminal-only session)
 > 
 > **STOP** — Don't set up Gimme as an MCP server. It will hang.
 > 
-> Read [`HERMES_INTEGRATION.md`](HERMES_INTEGRATION.md) for the correct approach: extend Hermes's native `clarify` tool with `fields[]` support.
+> Read [`HERMES_INTEGRATION.md`](HERMES_INTEGRATION.md) for the correct approach: extend the agent's native TUI with `fields[]` support.
+> 
+> **Desktop GUI agents (Zed, Cline desktop app, etc.)**: MCP setup is fine ✅
 
 ---
 
@@ -32,16 +34,16 @@ USE_CLI=1 python mcp_server.py
 
 ## When to Use Gimme
 
-| Your Agent | Use Gimme? | How |
-|------------|------------|-----|
-| **Desktop GUI agent** (Zed, Cline, etc.) | ✅ Yes | MCP server with GUI forms |
-| **Headless VPS agent** (SSH terminal) | ⚠️ Direct import only | `from mcp_server import cli_input` |
-| **Headless VPS agent** (MCP mode) | ❌ No | MCP stdio conflicts with interactive TUI |
+| Your Setup | Use Gimme as MCP? | How |
+|------------|-------------------|-----|
+| **Desktop GUI agent** (Zed, Cline desktop app) | ✅ Yes | MCP server with GUI forms |
+| **SSH into headless VPS** (terminal only, no GUI) | ❌ No | MCP stdio conflicts with terminal input |
+| **Local terminal agent** (runs on your desktop machine) | ⚠️ Try MCP first | May work if agent has GUI access |
 | **Custom CLI tool** | ✅ Yes | Direct import or subprocess |
 
-### Why MCP Mode Doesn't Work on Headless VPS
+### Why MCP Mode Fails with TUI-Only Access
 
-When Hermes (or any agent) runs on a headless VPS and you SSH in:
+When an agent runs on a headless VPS and you access it **only via SSH terminal**:
 
 1. **MCP stdio occupies stdin/stdout** — The protocol pipe is used for JSON-RPC framing, not connected to your terminal
 2. **CLI prompts go to stderr** — But reads from `sys.stdin` which is the MCP pipe, not your SSH session
@@ -49,7 +51,15 @@ When Hermes (or any agent) runs on a headless VPS and you SSH in:
 
 **Solution**: Agent frameworks should extend their own TUI with native form rendering (see: Hermes `clarify` tool with `fields[]`).
 
-## One-Liner MCP Setup
+### When MCP Mode Works Fine
+
+- **Desktop GUI agents**: Zed, Cline desktop app, etc. have native GUI access
+- **Local agents**: Running on your machine with display server access
+- **Agents with web UI**: Can relay forms through browser interface
+
+The problem is **specifically** terminal-only sessions where the agent has no way to display interactive UI to you.
+
+## One-Liner MCP Setup (Desktop GUI Agents Only)
 
 ### Zed (Desktop)
 ```json
@@ -76,7 +86,7 @@ Args: /path/to/Gimme/mcp_server.py
 
 ⚠️ **Common pitfall**: `args` must be a list `["arg1", "arg2"]`, not a string `"arg1 arg2"`.
 
-## Direct Python Import (Headless VPS / TUI Fallback)
+## Direct Python Import (TUI-Only / Headless VPS)
 
 For agents that need to render forms in their own terminal session:
 
@@ -220,7 +230,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"vibe_ui","
 gimme/
 ├── mcp_server.py              (~250 lines)
 ├── README.md                  (this file)
-├── HERMES_INTEGRATION.md      (Hermes-specific guide - READ THIS)
+├── HERMES_INTEGRATION.md      (TUI-only integration guide)
 ├── LICENSE
 ├── .gitignore
 └── examples/
@@ -238,13 +248,15 @@ gimme/
 
 ## For Agent Framework Developers
 
-If you're building an agent that runs on headless servers (SSH, VPS, etc.):
+If you're building an agent and need to support **TUI-only access** (SSH, terminal-only sessions):
 
 1. **Don't use Gimme as MCP** — The stdio protocol conflicts with interactive terminal input
 2. **Do extend your TUI** — Add native form rendering to your existing clarify/input tool
 3. **Optional: Use cli_input()** — Import directly for the input logic, render in your own TUI
 
 See `examples/hermes_callback.py` for the callback pattern.
+
+**Desktop GUI agents**: MCP setup works fine, no special handling needed.
 
 ## License
 
