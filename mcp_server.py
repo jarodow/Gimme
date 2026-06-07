@@ -1,91 +1,353 @@
 #!/usr/bin/env python3
-import asyncio, json, sys, threading, tkinter as tk
+import asyncio
+import json
+import os
+import sys
+import threading
+import tkinter as tk
 from tkinter import ttk
+
+# CLI mode: use --cli flag or set USE_CLI=1 env var
+CLI_MODE = "--cli" in sys.argv or os.environ.get("USE_CLI") == "1"
+
+
+def cli_input(schema):
+    """Collect input via terminal instead of GUI."""
+    print("\n=== " + schema.get("title", "Input Required") + " ===")
+    if schema.get("description"):
+        print(schema["description"] + "\n")
+    result = {}
+    for field in schema.get("fields", []):
+        name, label, ftype = (
+            field["name"],
+            field.get("label", field["name"].replace("_", " ").title()),
+            field.get("type", "text"),
+        )
+        req = " *" if field.get("required") else ""
+        default = field.get("default", "")
+        if ftype == "select":
+            opts = field.get("options", [])
+            print(
+                f"{label}{req}: {' | '.join(f'{i}:{v}' for i, v in enumerate(opts, 1))}"
+            )
+            while True:
+                val = input(
+                    f"  Enter 1-{len(opts)} or value [{default or opts[0]}]: "
+                ).strip()
+                if val.isdigit() and 1 <= int(val) <= len(opts):
+                    result[name] = opts[int(val) - 1]
+                    break
+                elif val in opts:
+                    result[name] = val
+                    break
+                elif not val:
+                    result[name] = default or opts[0]
+                    break
+                print("  Invalid option")
+        elif ftype == "checkbox":
+            val = input(f"{label}{req}? [y/N]").strip().lower()
+            result[name] = val in ("y", "yes", "true", "1")
+        elif ftype == "textarea":
+            print(f"{label}{req} (end with empty line):")
+            lines = []
+            while True:
+                line = input()
+                if not line:
+                    break
+                lines.append(line)
+            result[name] = "\n".join(lines) or default
+        elif ftype in ("multiselect", "tags"):
+            opts = field.get("options", [])
+            if opts:
+                print(
+                    f"{label}{req}: {' | '.join(f'{i}:{v}' for i, v in enumerate(opts, 1))}"
+                )
+                val = input(
+                    f"  Enter comma-sep numbers or values [{default}]: "
+                ).strip()
+                if val:
+                    result[name] = [
+                        opts[int(x) - 1]
+                        if x.isdigit() and 1 <= int(x) <= len(opts)
+                        else x.strip()
+                        for x in val.replace(",", " ").split()
+                    ]
+                else:
+                    result[name] = default if isinstance(default, list) else []
+            else:
+                val = input(
+                    f"{label}{req} (comma/newline separated) [{default}]: "
+                ).strip()
+                result[name] = (
+                    [x.strip() for x in val.replace(",", "\n").split("\n") if x.strip()]
+                    if val
+                    else (default or [])
+                )
+        elif ftype == "slider":
+            mn, mx, df = (
+                field.get("min", 0),
+                field.get("max", 100),
+                field.get("default", 50),
+            )
+            val = input(f"{label}{req} ({mn}-{mx}) [{df}]: ").strip()
+            result[name] = int(val) if val.isdigit() else df
+        elif ftype == "rating":
+            mx = field.get("max", 5)
+            val = input(f"{label}{req} (1-{mx}) [{field.get('default', 3)}]: ").strip()
+            result[name] = (
+                int(val)
+                if val.isdigit() and 1 <= int(val) <= mx
+                else field.get("default", 3)
+            )
+        elif ftype == "file":
+            is_dir = field.get("directory", False)
+            val = input(
+                f"{label}{req} ({'directory' if is_dir else 'file'}) [{default}]: "
+            ).strip()
+            result[name] = val or default
+        elif ftype == "datetime":
+            val = input(f"{label}{req} (YYYY-MM-DD HH:MM) [{default}]: ").strip()
+            result[name] = val or default
+        elif ftype == "range":
+            val = input(f"{label}{req} (start-end, e.g. 9-17) [{default}]: ").strip()
+            result[name] = val or default
+        else:  # text, email, password, number
+            show = "*" if ftype == "password" else ""
+            val = input(f"{label}{req}{show} [{default}]: ").strip()
+            result[name] = (
+                val or default
+                if ftype != "number"
+                else (int(val) if val.isdigit() else default)
+            )
+    print()
+    return result
+
 
 class VibeWindow:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title('VibeScreen')
-        self.root.geometry('450x350')
+        self.root.title("VibeScreen")
+        self.root.geometry("450x350")
         self.frame = ttk.Frame(self.root, padding=20)
         self.frame.pack(fill=tk.BOTH, expand=True)
         self.result = None
         self.inputs = {}
 
     def render(self, schema):
-        for w in self.frame.winfo_children(): w.destroy()
+        for w in self.frame.winfo_children():
+            w.destroy()
         self.result = None
         self.inputs = {}
-        if schema.get('title'):
-            ttk.Label(self.frame, text=schema['title'], font=('TkDefaultFont', 12, 'bold')).pack(pady=(0, 5))
-        if schema.get('description'):
-            ttk.Label(self.frame, text=schema['description'], wraplength=400).pack(pady=(0, 15))
-        for field in schema.get('fields', []):
-            name, label, ftype = field['name'], field.get('label', field['name'].replace('_', ' ').title()), field.get('type', 'text')
-            ttk.Label(self.frame, text=label + (' *' if field.get('required') else '')).pack(anchor=tk.W, pady=(10, 2))
-            if ftype == 'select':
-                var = tk.StringVar(value=field.get('default', field.get('options', [''])[0]))
-                w = ttk.Combobox(self.frame, textvariable=var, values=field.get('options', []), state='readonly')
-                w.pack(fill=tk.X); self.inputs[name] = var
-            elif ftype == 'checkbox':
-                var = tk.BooleanVar(value=field.get('default', False))
-                w = ttk.Checkbutton(self.frame, variable=var); w.pack(anchor=tk.W); self.inputs[name] = var
-            elif ftype == 'textarea':
-                w = tk.Text(self.frame, height=3, width=40); w.pack(fill=tk.X); w.insert('1.0', field.get('default', '')); self.inputs[name] = w
+        if schema.get("title"):
+            ttk.Label(
+                self.frame, text=schema["title"], font=("TkDefaultFont", 12, "bold")
+            ).pack(pady=(0, 5))
+        if schema.get("description"):
+            ttk.Label(self.frame, text=schema["description"], wraplength=400).pack(
+                pady=(0, 15)
+            )
+        for field in schema.get("fields", []):
+            name, label, ftype = (
+                field["name"],
+                field.get("label", field["name"].replace("_", " ").title()),
+                field.get("type", "text"),
+            )
+            ttk.Label(
+                self.frame, text=label + (" *" if field.get("required") else "")
+            ).pack(anchor=tk.W, pady=(10, 2))
+            if ftype == "select":
+                var = tk.StringVar(
+                    value=field.get("default", field.get("options", [""])[0])
+                )
+                w = ttk.Combobox(
+                    self.frame,
+                    textvariable=var,
+                    values=field.get("options", []),
+                    state="readonly",
+                )
+                w.pack(fill=tk.X)
+                self.inputs[name] = var
+            elif ftype == "checkbox":
+                var = tk.BooleanVar(value=field.get("default", False))
+                w = ttk.Checkbutton(self.frame, variable=var)
+                w.pack(anchor=tk.W)
+                self.inputs[name] = var
+            elif ftype == "textarea":
+                w = tk.Text(self.frame, height=3, width=40)
+                w.pack(fill=tk.X)
+                w.insert("1.0", field.get("default", ""))
+                self.inputs[name] = w
             else:
-                var = tk.StringVar(value=field.get('default', ''))
-                w = ttk.Entry(self.frame, textvariable=var, show='*' if ftype == 'password' else ''); w.pack(fill=tk.X); self.inputs[name] = var
-        btn_frame = ttk.Frame(self.frame); btn_frame.pack(pady=20)
+                var = tk.StringVar(value=field.get("default", ""))
+                w = ttk.Entry(
+                    self.frame,
+                    textvariable=var,
+                    show="*" if ftype == "password" else "",
+                )
+                w.pack(fill=tk.X)
+                self.inputs[name] = var
+        btn_frame = ttk.Frame(self.frame)
+        btn_frame.pack(pady=20)
+
         def submit():
             self.result = {}
             for n, w in self.inputs.items():
-                if isinstance(w, tk.BooleanVar): self.result[n] = w.get()
-                elif isinstance(w, tk.Text): self.result[n] = w.get('1.0', tk.END).strip()
-                else: self.result[n] = w.get()
+                if isinstance(w, tk.BooleanVar):
+                    self.result[n] = w.get()
+                elif isinstance(w, tk.Text):
+                    self.result[n] = w.get("1.0", tk.END).strip()
+                else:
+                    self.result[n] = w.get()
             self.root.quit()
-        def cancel(): self.result = {'_cancelled': True}; self.root.quit()
-        ttk.Button(btn_frame, text=schema.get('submit_label', 'Submit'), command=submit).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text=schema.get('cancel_label', 'Cancel'), command=cancel).pack(side=tk.LEFT, padx=5)
 
-    def run(self, schema): self.render(schema); self.root.wait_window(); return self.result
+        def cancel():
+            self.result = {"_cancelled": True}
+            self.root.quit()
+
+        ttk.Button(
+            btn_frame, text=schema.get("submit_label", "Submit"), command=submit
+        ).pack(side=tk.LEFT, padx=5)
+        ttk.Button(
+            btn_frame, text=schema.get("cancel_label", "Cancel"), command=cancel
+        ).pack(side=tk.LEFT, padx=5)
+
+    def run(self, schema):
+        self.render(schema)
+        self.root.wait_window()
+        return self.result
+
 
 gui = None
-def gui_main(): global gui; gui = VibeWindow(); gui.root.mainloop()
 
-TOOL = {'name': 'vibe_ui', 'description': 'Show GUI for structured input', 'inputSchema': {'type': 'object', 'properties': {'title': {'type': 'string'}, 'description': {'type': 'string'}, 'fields': {'type': 'array', 'items': {'type': 'object', 'properties': {'name': {'type': 'string'}, 'label': {'type': 'string'}, 'type': {'type': 'string', 'enum': ['text', 'email', 'password', 'number', 'textarea', 'select', 'checkbox']}, 'required': {'type': 'boolean'}, 'default': {'type': 'string'}, 'options': {'type': 'array', 'items': {'type': 'string'}}}, 'required': ['name']}}, 'submit_label': {'type': 'string'}, 'cancel_label': {'type': 'string'}}, 'required': ['fields']}}
+
+def gui_main():
+    global gui
+    gui = VibeWindow()
+    gui.root.mainloop()
+
+
+TOOL = {
+    "name": "vibe_ui",
+    "description": "Show GUI for structured input",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "description": {"type": "string"},
+            "fields": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "label": {"type": "string"},
+                        "type": {
+                            "type": "string",
+                            "enum": [
+                                "text",
+                                "email",
+                                "password",
+                                "number",
+                                "textarea",
+                                "select",
+                                "checkbox",
+                            ],
+                        },
+                        "required": {"type": "boolean"},
+                        "default": {"type": "string"},
+                        "options": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": ["name"],
+                },
+            },
+            "submit_label": {"type": "string"},
+            "cancel_label": {"type": "string"},
+        },
+        "required": ["fields"],
+    },
+}
+
 
 def send(msg):
     data = json.dumps(msg)
-    sys.stdout.buffer.write(('Content-Length: ' + str(len(data)) + '\r\n\r\n' + data).encode())
+    sys.stdout.buffer.write(
+        ("Content-Length: " + str(len(data)) + "\r\n\r\n" + data).encode()
+    )
     sys.stdout.flush()
 
+
 async def handle(req):
-    m, rid, p = req.get('method'), req.get('id'), req.get('params', {})
-    if m == 'initialize':
-        send({'jsonrpc': '2.0', 'id': rid, 'result': {'protocolVersion': '2024-11-05', 'capabilities': {'tools': {}}, 'serverInfo': {'name': 'vibescreen', 'version': '0.1.0'}}})
-        send({'jsonrpc': '2.0', 'method': 'notifications/initialized', 'params': {}})
-    elif m == 'tools/list': send({'jsonrpc': '2.0', 'id': rid, 'result': {'tools': [TOOL]}})
-    elif m == 'tools/call':
-        if p.get('name') != 'vibe_ui': send({'jsonrpc': '2.0', 'id': rid, 'error': {'message': 'Unknown tool'}}); return
-        result = await asyncio.get_event_loop().run_in_executor(None, lambda: gui.run(p.get('arguments', {}).get('schema', {})))
-        send({'jsonrpc': '2.0', 'id': rid, 'result': {'content': [{'type': 'text', 'text': json.dumps(result, indent=2)}]}})
-    else: send({'jsonrpc': '2.0', 'id': rid, 'error': {'message': 'Unknown method: ' + m}})
+    m, rid, p = req.get("method"), req.get("id"), req.get("params", {})
+    if m == "initialize":
+        send(
+            {
+                "jsonrpc": "2.0",
+                "id": rid,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "vibescreen", "version": "0.1.0"},
+                },
+            }
+        )
+        send({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
+    elif m == "tools/list":
+        send({"jsonrpc": "2.0", "id": rid, "result": {"tools": [TOOL]}})
+    elif m == "tools/call":
+        if p.get("name") != "vibe_ui":
+            send({"jsonrpc": "2.0", "id": rid, "error": {"message": "Unknown tool"}})
+            return
+        schema = p.get("arguments", {}).get("schema", {})
+        if CLI_MODE:
+            result = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: cli_input(schema)
+            )
+        else:
+            result = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: gui.run(schema)
+            )
+        send(
+            {
+                "jsonrpc": "2.0",
+                "id": rid,
+                "result": {
+                    "content": [{"type": "text", "text": json.dumps(result, indent=2)}]
+                },
+            }
+        )
+    else:
+        send(
+            {"jsonrpc": "2.0", "id": rid, "error": {"message": "Unknown method: " + m}}
+        )
+
 
 def run_server():
-    buf, cl = b'', 0
+    buf, cl = b"", 0
     while True:
         line = sys.stdin.readline()
-        if not line: break
+        if not line:
+            break
         line = line.strip()
-        if line.startswith('Content-Length:'):
-            cl = int(line.split(':')[1].strip())
+        if line.startswith("Content-Length:"):
+            cl = int(line.split(":")[1].strip())
             body = sys.stdin.read(cl)
             req = json.loads(body)
             asyncio.run(handle(req))
 
+
+if CLI_MODE:
+    print(
+        "Gimme running in CLI mode (set USE_CLI=0 or remove --cli for GUI)",
+        file=sys.stderr,
+    )
+
+
 async def main():
-    threading.Thread(target=gui_main, daemon=True).start()
-    await asyncio.sleep(0.5)
+    if not CLI_MODE:
+        threading.Thread(target=gui_main, daemon=True).start()
+        await asyncio.sleep(0.5)
     await asyncio.get_event_loop().run_in_executor(None, run_server)
 
-if __name__ == '__main__': asyncio.run(main())
+
+if __name__ == "__main__":
+    asyncio.run(main())

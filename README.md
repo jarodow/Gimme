@@ -10,6 +10,18 @@ python mcp_server.py
 
 Window opens. AI agent controls what appears.
 
+### CLI Mode
+
+For headless/remote use:
+
+```bash
+python mcp_server.py --cli
+# or
+USE_CLI=1 python mcp_server.py
+```
+
+Terminal prompts appear instead of GUI window.
+
 ## Field Types
 
 | Type | Description | Example Use |
@@ -105,10 +117,30 @@ User can paste from Excel (newlines) or type comma-separated.
     "gimme": {
       "command": "python",
       "args": ["/path/to/gimme/mcp_server.py"]
+    },
+    "gimme-cli": {
+      "command": "python",
+      "args": ["/path/to/gimme/mcp_server.py", "--cli"]
     }
   }
 }
 ```
+
+Use `gimme` for GUI, `gimme-cli` for terminal prompts.
+
+## CLI Example Session
+
+```
+=== Profile Setup ===
+
+Name *: [John Doe]: Alice Smith
+Language *: 1:Python | 2:JavaScript | 3:Rust [Python]: 1
+Enable notifications? [y/N]: y
+Tech stack (comma/newline separated) [Python, Docker]: Python, PostgreSQL, Docker
+Confidence threshold (0-100) [70]: 85
+```
+
+Same schema, works in both modes automatically.
 
 ## What This Solves
 
